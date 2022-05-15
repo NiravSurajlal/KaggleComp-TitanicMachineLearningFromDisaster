@@ -15,6 +15,7 @@ class Pipeline:
         self.scalers = {}
         self.predictions = {}
         self.trained_estimators = {}
+        self.training_cases = {}
 
     def add_algorithm(self, algorithm, algo_name):
         """ Adds OBJECTS to the pipeline algorithms dict."""
@@ -68,7 +69,7 @@ class Pipeline:
                 df = df.replace({col: reassign_dict})
         self.data[dataset_name] = df
     
-    def scale_data(self, dataset_name, column_names, scaler_objs):
+    def build_scaler_objs(self, dataset_name, column_names, scaler_objs):
         """ Scales the data . Only works with sklearn
             methods that use .fit() then .transform(). Also stores the used scalers
             in a dict {column name: scaler object}"""
@@ -81,19 +82,18 @@ class Pipeline:
                 scaler_obj.fit(X)
                 # data[col] = scaler_obj.transform(X)
                 scalers_to_add[col]=scaler_obj
-            self.scalers[str(scaler_obj)] = scalers_to_add
+            self.scalers[scaler_obj_key] = scalers_to_add
 
-    def perform_scaling(self, dataset_name='train'):
+    def perform_scaling(self, scaler_obj, dataset_name='train'):
         data = self.data[dataset_name].copy()
-        for scaler_obj_name in self.scalers.keys():
-            scaler = self.scalers[scaler_obj_name]
-            for col in data.columns.values:
-                if col in scaler.keys():
-                    X = np.array(data[col]).reshape(-1,1)
-                    data[col] = scaler[col].transform(X)
-            self.data[f"{scaler_obj_name} {dataset_name.upper()}"] = data
+        # scaler = self.scalers[scaler_obj_name]
+        for col in data.columns.values:
+            if col in scaler_obj.keys():
+                X = np.array(data[col]).reshape(-1,1)
+                data[col] = scaler_obj[col].transform(X)
+        return data
 
-    def set_labels(self, dataset_name, label_column):
+    def set_labels_and_features(self, dataset_name, label_column):
         """ Returns the features and lable dataframes. Only used during supervised/
             reinforcement learning. """
         data = self.data[dataset_name].copy()
@@ -127,15 +127,15 @@ class Pipeline:
     def remove_columns(self, dataset_name, columns_to_drop):
         """ Takes list of column names and drops them from the
             required dataset, overwriting it. """
-        print("Data shape:", np.shape(self.data[dataset_name]))
+        print("\t Data shape:", np.shape(self.data[dataset_name]))
         for col in columns_to_drop:
             self.data[dataset_name].drop(columns=[col], inplace=True)
-        print("Data shape:", np.shape(self.data[dataset_name]))
+        print("\t Data shape:", np.shape(self.data[dataset_name]))
 
     def remove_na_rows(self, dataset_name):
-        print("Data shape:", np.shape(self.data[dataset_name]))
+        print("\t Data shape:", np.shape(self.data[dataset_name]))
         self.data[dataset_name].dropna(inplace=True)
-        print("Data shape:", np.shape(self.data[dataset_name]))
+        print("\t Data shape:", np.shape(self.data[dataset_name]))
 
     def add_predictions(self, name, predictions):
         """ Add predictions for estimator """
@@ -193,26 +193,55 @@ class Pipeline:
         if columns_to_scale and scaler_obj:
             print('Generating scaler objects ...')
             try:
-                self.scale_data(dataset_name, columns_to_scale, scaler_obj)
+                self.build_scaler_objs(dataset_name, columns_to_scale, scaler_obj)
+                print(f"\t  Scaler objs: {self.scalers.keys()}")
             except KeyError as e:
                 print(f"Incorrect key used to select dataset or column to scale. \n Error {e}")
-    
-            print('Scaling training data ...')
-            try:
-                self.perform_scaling()
-            except KeyError as e:
-                print(f"Unable to scale. \n Error {e}")
 
         if label_name:
             print('Assigning lables ...')
             try:
-                self.set_labels(dataset_name, label_name)  
+                self.set_labels_and_features(dataset_name, label_name)  
             except KeyError as e:
                 print(f"Incorrect key used to select label column. \n Error {e}")      
 
         print('Completed Setup.')
-        
+    
+    def set_algos(self, algorithms):
+        """ Takes dict of {algo_name: algo_object} ."""
+        try:
+            for key in algorithms.keys():
+                self.add_algorithm(algorithms[key], key)
+        except Exception as e:
+            print(f"Error adding algorithm. Error: {e}")
 
+    def define_training_cases(self, cases):
+        """ Takes dict of lists. Dict must have non-duplicate integer keys, list
+            must be [algo_obj, scaler]. """
+        try:
+            for key in cases.keys():
+                self.training_cases[key] = cases[key]
+        except Exception as e:
+            print(f"Error adding case. Error: {e}")
+     
+    def get_data_by_case(self, case_name):
+        case = self.training_cases[case_name]
+        scaler = self.scalers[case[1]]
+
+        try:
+            Y = self.labels
+            print('Scaling training data ...')     
+            X = self.perform_scaling(scaler)
+        except AttributeError as e:
+            print(f'Labels and features not set. Run setup_training_data with label_name=XXX or set_labels_and_features. \n {e}')
+        except KeyError as e:
+            print(f"Unable to scale. \n Error {e}")
         
+        print('Data returned.')
+        return X, Y
+    
+    def check_scaled_columns(self):
+        for scaler in self.scalers.keys():
+            print(f"Scaler: {scaler} for {self.scalers[scaler].keys()}")
 
         
