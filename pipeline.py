@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import copy
 import os
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -69,15 +70,15 @@ class Pipeline:
                 df = df.replace({col: reassign_dict})
         self.data[dataset_name] = df
     
-    def build_scaler_objs(self, dataset_name, column_names, scaler_objs):
-        """ Scales the data . Only works with sklearn
-            methods that use .fit() then .transform(). Also stores the used scalers
-            in a dict {column name: scaler object}"""
+    def build_scaler_objs(self, dataset_name, columns_to_scale, scaler_objs):
+        """ Builds scaler objs . Only works with sklearn methods that use .fit() then .transform(). 
+            Stores the used scalers in a dict {column name: scaler object}. Currently, only 
+            supports using the same defined scaling obj over the columns. """
         for scaler_obj_key in scaler_objs.keys():
-            scaler_obj = scaler_objs[scaler_obj_key]
             scalers_to_add = {}
             data = self.data[dataset_name].copy()
-            for col in column_names:
+            for col in columns_to_scale:
+                scaler_obj = copy.deepcopy(scaler_objs[scaler_obj_key])
                 X = np.array(data[col]).reshape(-1,1)
                 scaler_obj.fit(X)
                 # data[col] = scaler_obj.transform(X)
@@ -101,7 +102,7 @@ class Pipeline:
         self.features = data.drop(columns=label_column)
         return self.features, self.labels
 
-    def get_errors(self, predictions, estimator_name):
+    def get_errors(self, predictions, case):
         """ Returns average errors & how the error changes. Only used during supervised/
             reinforcement learning. Saves to self.errors per estimator as
             (error, error_change per prediction)"""
@@ -113,8 +114,9 @@ class Pipeline:
         for i in range(0, len(errors)):
             total = np.sum(errors[0:i])
             avg_error_over_time = np.append(avg_error_over_time, total/(i+1))
-        self.errors[estimator_name] = {'error': errors, 'delta_error': avg_error_over_time}
-    
+        self.errors[case] = {'error': errors, 'delta_error': avg_error_over_time}
+
+
     def plot_scatter(self, y, name, x=None):
         """ Returns figure object of the scatter plot. """
         fig = plt.figure()
@@ -216,8 +218,8 @@ class Pipeline:
             print(f"Error adding algorithm. Error: {e}")
 
     def define_training_cases(self, cases):
-        """ Takes dict of lists. Dict must have non-duplicate integer keys, list
-            must be [algo_obj, scaler]. """
+        """ Takes dict of lists. Dict must have non-duplicate integer keys. Stores the
+            steps taken to develop the training case. """
         try:
             for key in cases.keys():
                 self.training_cases[key] = cases[key]
@@ -226,7 +228,10 @@ class Pipeline:
      
     def get_data_by_case(self, case_name):
         case = self.training_cases[case_name]
-        scaler = self.scalers[case[1]]
+        try:
+            scaler = self.scalers[case['Scaler']]
+        except KeyError as e:
+            print(f"Case does not have key 'Scaler'. \n Error: {e}")
 
         try:
             Y = self.labels
@@ -240,6 +245,26 @@ class Pipeline:
         print('Data returned.')
         return X, Y
     
+    def update_case_data(self, case, updates):
+        """ Takes updates in the form of a list -> strings or any, and 
+            appends to the training case definitions. """
+        try:
+            self.training_cases[case].update(updates)
+        except Exception as e:
+            print(f"Unable to update training case. \n Error: {e}")
+    
+    def check_training_case_for_test(self, case_number):
+        """ Takes the case number and prints in a readable format, the steps taken
+            for this training case's run. """
+        iter = 1
+        case = self.training_cases[case_number]
+        for key in case.keys():
+            print(f"{iter}.\t {key} - {case[key]}")
+            iter = iter + 1
+            # else:
+            #     print(f"{iter}.\t {step}")
+            #     iter = iter + 1
+
     def check_scaled_columns(self):
         for scaler in self.scalers.keys():
             print(f"Scaler: {scaler} for {self.scalers[scaler].keys()}")
